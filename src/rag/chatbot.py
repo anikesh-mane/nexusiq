@@ -1,36 +1,45 @@
 """
 RAG Chatbot — interactive Q&A grounded to the processed document and pipeline outputs.
+
+Uses the Gemini native Chat Session API (client.chats.create) so the SDK manages
+conversation history automatically. The pipeline context is injected once as the
+system_instruction. Each user turn retrieves fresh ChromaDB context and sends an
+augmented prompt to the stateful chat session.
 """
 import json
 from typing import Any
 
 from loguru import logger
+from google.genai import types
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
 from rich.prompt import Prompt
-from rich import print as rprint
 
-from src.llm.client import call_llm
+from src.llm.client import get_model
+from src.config import config as app_config
+from src.rag.vector_store import retrieve_similar
 from src.evaluation.ragas_metrics import compute_ragas_metrics
 from src.evaluation.db_logger import log_ragas_metrics
 
 console = Console()
 
-#  Context builder
 
-def _build_system_context(result: dict[str, Any]) -> str:
+# Context builder
+
+def _build_system_instruction(result: dict[str, Any]) -> str:
     """
-    Serialise the pipeline result into a rich context block for the LLM.
-    The raw document content is pulled from result['raw_content'].
+    Build the system instruction from the pipeline result.
+    This is injected once into GenerateContentConfig and anchors the
+    assistant's persona for the entire session.
     """
-    doc_content   = result.get("raw_content", "")[:3000]
-    doc_type      = result.get("document_type", "unknown")
-    confidence    = result.get("confidence_score", 0)
-    reasoning     = result.get("classification_reasoning", "")
-    entities      = json.dumps(result.get("key_entities", {}), indent=2, default=str)
-    issues        = result.get("validation", {}).get("issues", [])
+    doc_content     = result.get("raw_content", "")[:3000]
+    doc_type        = result.get("document_type", "unknown")
+    confidence      = result.get("confidence_score", 0)
+    reasoning       = result.get("classification_reasoning", "")
+    entities        = json.dumps(result.get("key_entities", {}), indent=2, default=str)
+    issues          = result.get("validation", {}).get("issues", [])
     recommendations = result.get("recommendations", [])
 
     issues_text = "\n".join(
@@ -43,13 +52,10 @@ def _build_system_context(result: dict[str, Any]) -> str:
         for r in recommendations
     ) or "  None."
 
-    return f"""You are NexusIQ Assistant, an expert analyst. You help users understand a business document
-that has already been processed through an AI pipeline.
-
-IMPORTANT RULES:
-1. Answer ONLY based on the context provided below. Do not use external knowledge.
-2. If a question cannot be answered from this context, say so clearly.
-3. Be concise, precise, and professional.
+    return f"""You are NexusIQ Assistant, a Smart Document Intelligence Assistant.
+Your job is to answer questions based ONLY on the provided document context and pipeline outputs below.
+If the answer is not contained in the provided context, state: "I cannot find the answer in the provided documents."
+Do not use outside knowledge. Be concise, precise, and professional.
 
 ================================
 DOCUMENT CONTENT (excerpt — first 3000 chars):
@@ -77,23 +83,31 @@ PIPELINE OUTPUTS:
 """
 
 
-#  Prompt builder 
+# ChromaDB retrieval
 
-def _build_prompt(system_ctx: str, history: list[dict], user_msg: str) -> str:
-    """Concatenate system context + conversation history + new user message."""
-    turns = ""
-    for turn in history:
-        turns += f"\nUser: {turn['user']}\nAssistant: {turn['assistant']}\n"
-    return f"{system_ctx}\n{turns}\nUser: {user_msg}\nAssistant:"
+def _retrieve_context(query: str) -> str:
+    """
+    Query ChromaDB for the top-3 most relevant document chunks.
+    Returns a single string joining the retrieved passages.
+    Falls back to an empty string if the store is empty or retrieval fails.
+    """
+    try:
+        similar_docs = retrieve_similar(query=query, n_results=3)
+        if not similar_docs:
+            return ""
+        return "\n---\n".join(d["document"] for d in similar_docs)
+    except Exception as exc:
+        logger.warning(f"ChromaDB retrieval failed: {exc}")
+        return ""
 
 
 # Display helpers
 
 def _print_welcome(result: dict[str, Any]) -> None:
-    doc_name  = result.get("document", "document")
-    doc_type  = result.get("document_type", "unknown").upper()
-    n_issues  = result.get("validation", {}).get("issue_count", 0)
-    n_recs    = len(result.get("recommendations", []))
+    doc_name = result.get("document", "document")
+    doc_type = result.get("document_type", "unknown").upper()
+    n_issues = result.get("validation", {}).get("issue_count", 0)
+    n_recs   = len(result.get("recommendations", []))
 
     console.print()
     console.print(
@@ -101,7 +115,7 @@ def _print_welcome(result: dict[str, Any]) -> None:
             f"[bold cyan]NexusIQ Chat[/bold cyan] — Ask anything about [green]{doc_name}[/green]\n"
             f"[dim]Type [bold]exit[/bold] or [bold]quit[/bold] to end  •  "
             f"[bold]summary[/bold] to re-print results  •  "
-            f"[bold]clear[/bold] to reset history[/dim]",
+            f"[bold]clear[/bold] to start a new session[/dim]",
             border_style="cyan",
         )
     )
@@ -109,10 +123,10 @@ def _print_welcome(result: dict[str, Any]) -> None:
     t = Table(show_header=False, box=None, padding=(0, 2))
     t.add_column("K", style="bold cyan")
     t.add_column("V", style="white")
-    t.add_row("Document Type",    doc_type)
-    t.add_row("Confidence",       f"{result.get('confidence_score', 0):.0%}")
-    t.add_row("Issues Found",     str(n_issues))
-    t.add_row("Recommendations",  str(n_recs))
+    t.add_row("Document Type",   doc_type)
+    t.add_row("Confidence",      f"{result.get('confidence_score', 0):.0%}")
+    t.add_row("Issues Found",    str(n_issues))
+    t.add_row("Recommendations", str(n_recs))
     console.print(Panel(t, title="[bold]Session Context[/bold]", border_style="green"))
     console.print()
 
@@ -157,19 +171,47 @@ def _print_summary(result: dict[str, Any]) -> None:
     console.print()
 
 
-#  Main entry point 
+# Session factory
+
+def _create_chat_session(system_instruction: str):
+    """
+    Create a stateful Gemini chat session with the pipeline context baked
+    in as the system instruction. The SDK manages conversation history.
+    """
+    client = get_model()
+    chat_config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.2,  # low temperature → factual, grounded answers
+    )
+    return client.chats.create(
+        model=app_config.GEMINI_MODEL,
+        config=chat_config,
+    )
+
+
+# Main entry point
 
 def start_chat_session(result: dict[str, Any]) -> None:
     """
-    Launch an interactive RAG chatbot REPL grounded to the processed document.
+    Launch an interactive RAG chatbot grounded to the processed document.
+
+    - Pipeline context is injected once as system_instruction.
+    - ChromaDB is queried each turn for fresh relevant passages.
+    - The augmented prompt (context + question) is sent to a stateful
+      Gemini chat session; conversation history is managed by the SDK.
+    - RAGAS metrics are computed and persisted after every answer.
 
     Args:
         result: The full dict returned by run_pipeline() — must include 'raw_content'.
     """
-    system_ctx: str = _build_system_context(result)
-    history: list[dict] = []
+    system_instruction = _build_system_instruction(result)
+    filename           = result.get("document", "unknown")
 
     _print_welcome(result)
+
+    # Create the stateful chat session once
+    chat = _create_chat_session(system_instruction)
+    logger.info("Gemini chat session created for document: %s", filename)
 
     while True:
         try:
@@ -183,7 +225,7 @@ def start_chat_session(result: dict[str, Any]) -> None:
 
         cmd = user_input.lower()
 
-        #  Built-in commands 
+        # Built-in commands
         if cmd in ("exit", "quit"):
             console.print("[dim]Goodbye! Chat session ended.[/dim]")
             break
@@ -193,8 +235,9 @@ def start_chat_session(result: dict[str, Any]) -> None:
             continue
 
         if cmd == "clear":
-            history.clear()
-            console.print("[dim]Conversation history cleared.[/dim]\n")
+            # Create a fresh session (resets SDK-managed history)
+            chat = _create_chat_session(system_instruction)
+            console.print("[dim]New session started — conversation history cleared.[/dim]\n")
             continue
 
         if cmd in ("help", "?"):
@@ -204,44 +247,51 @@ def start_chat_session(result: dict[str, Any]) -> None:
             )
             continue
 
-        # LLM call
-        prompt = _build_prompt(system_ctx, history, user_input)
+        # A. Retrieve relevant context from ChromaDB for this query
+        retrieved_context = _retrieve_context(user_input)
 
+        # B. Construct the augmented prompt for this turn
+        augmented_prompt = f"""Context from documents:
+{retrieved_context if retrieved_context else "(No additional context retrieved from vector store.)"}
+
+User Question:
+{user_input}"""
+
+        # C. Send the augmented prompt to the stateful chat session
         try:
             with console.status("[dim]Thinking…[/dim]", spinner="dots"):
-                response = call_llm(prompt)
+                response = chat.send_message(augmented_prompt)
+            answer = response.text.strip()
         except Exception as exc:
             console.print(f"[red]LLM error:[/red] {exc}\n")
             logger.error(f"Chatbot LLM error: {exc}")
             continue
 
-        # Store in history
-        history.append({"user": user_input, "assistant": response})
-
-        # Render response as markdown for nice formatting
+        # Render response
         console.print()
         console.print(
             Panel(
-                Markdown(response),
+                Markdown(answer),
                 title="[bold green]NexusIQ Assistant[/bold green]",
                 border_style="green",
             )
         )
         console.print()
 
-        # RAGAS evaluation — compute + persist metrics silently
+        # D. RAGAS evaluation — compute + persist metrics silently
         try:
             with console.status("[dim]Evaluating response quality…[/dim]", spinner="dots"):
-                rag_contexts = [system_ctx]  # the full pipeline context sent to the LLM
+                rag_contexts = [retrieved_context or system_instruction]
                 metrics = compute_ragas_metrics(
                     question=user_input,
-                    answer=response,
+                    answer=answer,
                     contexts=rag_contexts,
                 )
-            log_ragas_metrics(filename=result.get("document", "unknown"), metrics=metrics)
-            # Show scores inline so the user can see quality at a glance
+            log_ragas_metrics(filename=filename, metrics=metrics)
             scores_line = "  ".join(
-                f"[dim]{k}:[/dim] [cyan]{v:.2f}[/cyan]" if v is not None else f"[dim]{k}:[/dim] [yellow]n/a[/yellow]"
+                f"[dim]{k}:[/dim] [cyan]{v:.2f}[/cyan]"
+                if v is not None
+                else f"[dim]{k}:[/dim] [yellow]n/a[/yellow]"
                 for k, v in metrics.items()
             )
             console.print(f"[dim]📊 RAGAS:[/dim] {scores_line}\n")
