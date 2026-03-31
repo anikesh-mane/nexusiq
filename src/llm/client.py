@@ -3,7 +3,7 @@ Gemini API client — thin wrapper around google-genai.
 """
 
 from typing import Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from loguru import logger
 
@@ -63,6 +63,9 @@ class Recommendation(BaseModel):
     action: str
     reasoning: str
     priority: str # "high|medium|low"
+
+class RecommendationList(BaseModel):
+    recommendations: list[Recommendation] = Field(description="A list of 2 to 4 actionable next steps.")
 
 
 class GenericExtraction(BaseModel):
@@ -132,7 +135,11 @@ def call_llm_json(prompt: str, schema: type[BaseModel]) -> BaseModel:
             temperature=0.1,
         ),
     )
-    return schema.model_validate_json(response.text)
+    
+    text = response.text.strip()
+    logger.debug(f"LLM JSON response length: {len(text)}")
+    
+    return schema.model_validate_json(text)
 
 
 
@@ -149,9 +156,9 @@ def extract_document(prompt, document_type) -> BaseModel:
     return call_llm_json(prompt, schema)
 
 
-def recommendor(prompt) -> Recommendation:
+def recommendor(prompt) -> RecommendationList:
     """Generate a list of recommended next actions for this document."""
-    return call_llm_json(prompt, Recommendation)
+    return call_llm_json(prompt, RecommendationList)
 
 
 def embed_text(text: str) -> list[float]:

@@ -9,14 +9,4 @@ recommendation_template: |
 
   Validation issues found:
   {validation_issues}
-
-  Respond with ONLY a valid JSON array of recommendation objects — no explanation, no markdown fences.
-
-  Format:
-  [
-    {{
-      "action": "<short action title>",
-      "reason": "<why this action is needed>",
-      "priority": "high|medium|low"
-    }}
-  ]
+  

@@ -33,19 +33,21 @@ def recommend_actions(
 
     logger.info("Generating action recommendations...")
     try:
-        recommendations = recommendor(prompt).model_dump()
-        if isinstance(recommendations, dict):
-            # Sometimes the LLM wraps the array in a key
-            recommendations = next(
-                (v for v in recommendations.values() if isinstance(v, list)),
-                [],
-            )
+        
+        recommendation_result = recommendor(prompt)
+
+        # Dump the entire wrapper into a dictionary
+        full_dict = recommendation_result.model_dump()
+
+        # Extract the list of dictionaries
+        recommendations_dict_list = full_dict["recommendations"]
+        
     except ValueError:
         logger.warning("Recommendation returned bad JSON — falling back to heuristics.")
-        recommendations = _heuristic_recommendations(document_type, validation_issues)
+        recommendations_dict_list = _heuristic_recommendations(document_type, validation_issues)
 
-    logger.info(f"Generated {len(recommendations)} recommendation(s)")
-    return recommendations
+    logger.info(f"Generated {len(recommendations_dict_list)} recommendation(s)")
+    return recommendations_dict_list
 
 
 def _heuristic_recommendations(

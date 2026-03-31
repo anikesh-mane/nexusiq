@@ -26,6 +26,8 @@ NexusIQ is an intelligent document processing pipeline designed to classify, ext
 │   ├── evaluation/                # Metrics and performance monitoring
 │   └── utils/                     # Formatting and logging
 ├── tests/                         # Unit and integration tests
+├── cli.py                         # entry point of the project
+├── config.py                      # important config params that need to setup before hand
 └── requirements.txt               # Project dependencies
 ```
 
