@@ -13,6 +13,8 @@ from rich.prompt import Prompt
 from rich import print as rprint
 
 from src.llm.client import call_llm
+from src.evaluation.ragas_metrics import compute_ragas_metrics
+from src.evaluation.db_logger import log_ragas_metrics
 
 console = Console()
 
@@ -202,7 +204,7 @@ def start_chat_session(result: dict[str, Any]) -> None:
             )
             continue
 
-        # LLM call 
+        # LLM call
         prompt = _build_prompt(system_ctx, history, user_input)
 
         try:
@@ -226,3 +228,22 @@ def start_chat_session(result: dict[str, Any]) -> None:
             )
         )
         console.print()
+
+        # RAGAS evaluation — compute + persist metrics silently
+        try:
+            with console.status("[dim]Evaluating response quality…[/dim]", spinner="dots"):
+                rag_contexts = [system_ctx]  # the full pipeline context sent to the LLM
+                metrics = compute_ragas_metrics(
+                    question=user_input,
+                    answer=response,
+                    contexts=rag_contexts,
+                )
+            log_ragas_metrics(filename=result.get("document", "unknown"), metrics=metrics)
+            # Show scores inline so the user can see quality at a glance
+            scores_line = "  ".join(
+                f"[dim]{k}:[/dim] [cyan]{v:.2f}[/cyan]" if v is not None else f"[dim]{k}:[/dim] [yellow]n/a[/yellow]"
+                for k, v in metrics.items()
+            )
+            console.print(f"[dim]📊 RAGAS:[/dim] {scores_line}\n")
+        except Exception as exc:
+            logger.warning(f"RAGAS evaluation skipped: {exc}")
