@@ -138,7 +138,7 @@ def call_llm_json(prompt: str, schema: type[BaseModel]) -> BaseModel:
 
 # Document pipeline
 
-def classify_document(prompt) -> DocumentClassification:
+def classifier(prompt) -> DocumentClassification:
     """Classify a document and return a validated DocumentClassification."""
     return call_llm_json(prompt, DocumentClassification)
 
@@ -149,7 +149,7 @@ def extract_document(prompt, document_type) -> BaseModel:
     return call_llm_json(prompt, schema)
 
 
-def recommend_actions(prompt) -> Recommendation:
+def recommendor(prompt) -> Recommendation:
     """Generate a list of recommended next actions for this document."""
     return call_llm_json(prompt, Recommendation)
 

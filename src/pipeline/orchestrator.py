@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from loguru import logger
 
+from src.config import config
 from src.ingestion.parser import parse_document
 from src.core.classifier import classify_document
 from src.core.extractor import extract_entities
@@ -41,6 +42,10 @@ def run_pipeline(file_path: str | Path) -> dict[str, Any]:
     content = parse_document(path)
     doc_id = _make_doc_id(path, content)
 
+    # ---------- 3. Classify ----------
+    classification = classify_document(content)
+    doc_type = classification["document_type"]
+
     # ---------- 2. Index ----------
     add_document(
         doc_id=doc_id,
@@ -51,10 +56,6 @@ def run_pipeline(file_path: str | Path) -> dict[str, Any]:
             "confidence": classification["confidence"],
         },
     )
-
-    # ---------- 3. Classify ----------
-    classification = classify_document(content)
-    doc_type = classification["document_type"]
 
     # ---------- 4. Extract ----------
     entities = extract_entities(content, doc_type)
@@ -86,8 +87,8 @@ def run_pipeline(file_path: str | Path) -> dict[str, Any]:
             "issues": issues,
         },
         "recommendations": recommendations,
-        "rag_context_used": len(similar_docs) > 0,
-        "similar_documents": [d["id"] for d in similar_docs],
+        # "rag_context_used": len(similar_docs) > 0,
+        # "similar_documents": [d["id"] for d in similar_docs],
         "processing_time_seconds": round(elapsed, 3),
     }
 

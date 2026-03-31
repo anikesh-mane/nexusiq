@@ -2,7 +2,7 @@
 Classifier — determines the document type using the LLM.
 """
 from loguru import logger
-from src.llm.client import classify_document
+from src.llm.client import classifier
 from src.llm.prompt_manager import prompt_manager
 
 
@@ -25,7 +25,7 @@ def classify_document(content: str) -> dict:
     prompt = prompt_manager.render("classification", content=snippet)
 
     logger.info("Classifying document...")
-    result = classify_document(prompt)
+    result = classifier(prompt).model_dump()
 
     doc_type = result.get("document_type", "other").lower().strip()
     if doc_type not in VALID_TYPES:

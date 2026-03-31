@@ -3,7 +3,7 @@ Recommender — derives next-best-actions using the LLM given extraction + valid
 """
 import json
 from loguru import logger
-from src.llm.client import recommend_actions
+from src.llm.client import recommendor
 from src.llm.prompt_manager import prompt_manager
 from src.utils.formatters import to_pretty_json
 
@@ -33,7 +33,7 @@ def recommend_actions(
 
     logger.info("Generating action recommendations...")
     try:
-        recommendations = recommend_actions(prompt)
+        recommendations = recommendor(prompt).model_dump()
         if isinstance(recommendations, dict):
             # Sometimes the LLM wraps the array in a key
             recommendations = next(

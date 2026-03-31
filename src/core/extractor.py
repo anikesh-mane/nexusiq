@@ -27,7 +27,7 @@ def extract_entities(content: str, document_type: str) -> dict:
 
     logger.info(f"Extracting entities for document type: {document_type}")
     try:
-        entities = extract_document(prompt, document_type)
+        entities = extract_document(prompt, document_type).model_dump()
     except ValueError:
         logger.warning("Extraction returned bad JSON — returning empty dict")
         entities = {}

@@ -39,7 +39,7 @@ NexusIQ is an intelligent document processing pipeline designed to classify, ext
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/your-repo/nexusiq.git
+    git clone https://github.com/anikesh-mane/nexusiq.git
     cd nexusiq
     ```
 
@@ -53,13 +53,16 @@ NexusIQ is an intelligent document processing pipeline designed to classify, ext
     ```bash
     cp .env.example .env
     ```
+    update the env and config.py files
 
 ## 🖥️ Usage
 
 Run the CLI for document processing:
 
 ```bash
-python src/cli.py --input data/raw/sample.pdf
+python src/cli.py data/raw/sample.pdf
+
+python -m src.cli data/raw/sample.pdf
 ```
 
 ## 🧪 Testing
