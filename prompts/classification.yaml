@@ -1,0 +1,18 @@
+classification_template: |
+  You are a document classifier. Analyze the content below and identify the document type.
+
+  Choose ONE from: invoice, contract, email, report, other
+
+  Respond with ONLY a valid JSON object — no explanation, no markdown fences.
+
+  Format:
+  {{
+    "document_type": "<type>",
+    "confidence": <0.0-1.0>,
+    "reasoning": "<one sentence>"
+  }}
+
+  Document Content:
+  ---
+  {content}
+  ---

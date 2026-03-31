@@ -1,0 +1,22 @@
+recommendation_template: |
+  You are a business process advisor. Based on the extracted document data and validation issues below,
+  recommend 2-4 specific, actionable next steps.
+
+  Document type: {document_type}
+
+  Extracted entities:
+  {extracted_data}
+
+  Validation issues found:
+  {validation_issues}
+
+  Respond with ONLY a valid JSON array of recommendation objects — no explanation, no markdown fences.
+
+  Format:
+  [
+    {{
+      "action": "<short action title>",
+      "reason": "<why this action is needed>",
+      "priority": "high|medium|low"
+    }}
+  ]
