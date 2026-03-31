@@ -60,9 +60,21 @@ NexusIQ is an intelligent document processing pipeline designed to classify, ext
 Run the CLI for document processing:
 
 ```bash
+
+# chatbot runs by default in these cases
 python src/cli.py data/raw/sample.pdf
 
 python -m src.cli data/raw/sample.pdf
+
+# Default — processes document, then opens chat session
+python -m src.cli data/raw/invoice.pdf
+
+# Skip the chatbot (e.g. in CI/scripts)
+python -m src.cli data/raw/invoice.pdf --no-chat
+
+# Save JSON output AND chat
+python -m src.cli data/raw/invoice.pdf -o output.json
+
 ```
 
 ## 🧪 Testing

@@ -61,16 +61,16 @@ def run_pipeline(file_path: str | Path) -> dict[str, Any]:
     entities = extract_entities(content, doc_type)
     entities = sanitize_output(entities)
 
-    # # ---------- 4. RAG context ----------
-    # similar_docs = retrieve_similar(query=content[:500], n_results=3)
-    # rag_context = [d["document"][:300] for d in similar_docs]
-    # logger.info(f"RAG: retrieved {len(similar_docs)} similar document(s)")
-
     # ---------- 5. Validate ----------
     issues = validate(entities, doc_type)
 
     # ---------- 6. Recommend ----------
     recommendations = recommend_actions(doc_type, entities, issues)
+
+    # # ---------- 7. RAG context ----------
+    # similar_docs = retrieve_similar(query=content[:500], n_results=3)
+    # rag_context = [d["document"][:300] for d in similar_docs]
+    # logger.info(f"RAG: retrieved {len(similar_docs)} similar document(s)")
 
 
     elapsed = time.perf_counter() - start
@@ -90,6 +90,7 @@ def run_pipeline(file_path: str | Path) -> dict[str, Any]:
         # "rag_context_used": len(similar_docs) > 0,
         # "similar_documents": [d["id"] for d in similar_docs],
         "processing_time_seconds": round(elapsed, 3),
+        "raw_content": content,  # full parsed text — used by the RAG chatbot
     }
 
 

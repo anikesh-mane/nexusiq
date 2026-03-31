@@ -13,6 +13,7 @@ from rich import print as rprint
 from src.utils.logger import setup_logger
 from src.pipeline.orchestrator import run_pipeline
 from src.evaluation.db_logger import log_pipeline_run
+from src.rag.chatbot import start_chat_session
 
 app = typer.Typer(
     name="nexusiq",
@@ -29,6 +30,7 @@ def process(
     log_level: str = typer.Option("INFO", "--log-level", "-l", help="Logging level."),
     save_metrics: bool = typer.Option(True, "--metrics/--no-metrics", help="Log run to SQLite."),
     pretty: bool = typer.Option(True, "--pretty/--plain", help="Rich formatted output."),
+    chat: bool = typer.Option(True, "--chat/--no-chat", help="Launch interactive RAG chatbot after processing."),
 ):
     """
     Process a business document and output structured insights + recommendations.
@@ -60,11 +62,12 @@ def process(
         except Exception as exc:
             console.print(f"[yellow]Warning:[/yellow] Could not log metrics: {exc}")
 
-    # --- Display output ---
-    json_str = json.dumps(result, indent=2, default=str)
+    # --- Display output (strip internal-only fields before serialising) ---
+    display_result = {k: v for k, v in result.items() if k != "raw_content"}
+    json_str = json.dumps(display_result, indent=2, default=str)
 
     if pretty:
-        _display_pretty(result, json_str)
+        _display_pretty(display_result, json_str)
     else:
         print(json_str)
 
@@ -73,6 +76,10 @@ def process(
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json_str, encoding="utf-8")
         console.print(f"\n[dim]Output saved to:[/dim] {output}")
+
+    # --- RAG Chatbot ---
+    if chat:
+        start_chat_session(result)
 
 
 def _display_pretty(result: dict, json_str: str) -> None:
